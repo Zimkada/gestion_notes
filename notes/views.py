@@ -97,6 +97,7 @@ def get_students(request):
 
 
 @csrf_exempt
+@csrf_exempt
 def import_data(request):
     if request.method == "POST" and request.FILES.get("file"):
         file = request.FILES["file"]
@@ -113,18 +114,12 @@ def import_data(request):
             # Transaction atomique pour éviter les problèmes de cohérence
             from django.db import transaction
             with transaction.atomic():
-                # Réinitialiser les données existantes
-                Note.objects.all().delete()
-                Student.objects.all().delete()
-                Class.objects.all().delete()
-                College.objects.all().delete()
-
-                # Création des établissements, classes et élèves
+                # Création des établissements, classes et élèves sans supprimer les existants
                 for _, row in data.iterrows():
                     # Récupérer ou créer l'établissement
                     college, _ = College.objects.get_or_create(
                         name=row["Etablissement"],
-                        defaults={'address': ''}  # Ajouter une valeur par défaut
+                        defaults={'address': ''}  # Ajouter une valeur par défaut si nécessaire
                     )
 
                     # Récupérer ou créer la classe
@@ -133,13 +128,15 @@ def import_data(request):
                         college=college
                     )
 
-                    # Créer l'élève
-                    Student.objects.create(
+                    # Créer l'élève, en s'assurant qu'il n'existe pas déjà
+                    Student.objects.get_or_create(
                         matricule=row["Matricule"],
-                        name=row["Nom"],
-                        prenoms=row["Prénoms"],
-                        classe=classe,
-                        college=college
+                        defaults={
+                            'name': row["Nom"],
+                            'prenoms': row["Prénoms"],
+                            'classe': classe,
+                            'college': college
+                        }
                     )
 
             return JsonResponse({"message": "Importation réussie !"}, status=200)
@@ -148,6 +145,7 @@ def import_data(request):
             return JsonResponse({"error": f"Erreur lors de l'importation : {str(e)}"}, status=500)
 
     return JsonResponse({"error": "Aucun fichier fourni."}, status=400)
+
 
 @csrf_exempt
 def save_notes(request):
@@ -211,7 +209,9 @@ def get_classes(request):
             return JsonResponse({"error": "ID d'établissement manquant."}, status=400)
         
         try:
+            # Trouver l'établissement par ID
             college = College.objects.get(id=etablissement_id)
+            # Récupérer les classes associées à cet établissement
             classes = list(college.classes.values_list('name', flat=True))
             return JsonResponse(classes, safe=False)
         
